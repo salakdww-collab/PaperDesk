@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_STORAGE_DIR=/app/storage
+      - APP_DB_PATH=/app/storage/app.db
+      - APP_ATTACHMENTS_DIR=/app/storage/attachments
+      - APP_BACKUPS_DIR=/app/storage/backups
+    volumes:
+      - ./storage:/app/storage
+
+  web:
+    build:
+      context: ./frontend
+    depends_on:
+      - api
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    ports:
+      - "5173:5173"
