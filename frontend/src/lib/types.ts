@@ -36,6 +36,8 @@ export interface Paper {
   arxiv_id?: string | null
   abstract?: string | null
   summary?: string | null
+  bibtex_override?: string | null
+  scholar_url?: string | null
   summary_label?: string | null
   language?: string | null
   needs_manual_metadata: boolean

@@ -40,6 +40,8 @@ class Paper(Base):
     arxiv_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bibtex_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scholar_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     summary_label: Mapped[str] = mapped_column(String(64), nullable=False, default="Abstract")
     language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     needs_manual_metadata: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

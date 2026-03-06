@@ -50,7 +50,9 @@ def to_apa(paper: Paper) -> str:
 
 def render_citation(paper: Paper, style: str) -> str:
     if style == "bibtex":
-        return to_bibtex(paper)
+        if paper.bibtex_override and paper.bibtex_override.strip():
+            return paper.bibtex_override.strip()
+        raise ValueError("manual bibtex not set")
     if style == "apa":
         return to_apa(paper)
     raise ValueError(f"unsupported style: {style}")

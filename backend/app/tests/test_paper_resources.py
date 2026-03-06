@@ -199,3 +199,111 @@ def test_title_is_editable_but_original_title_is_preserved(client):
     payload = update_resp.json()
     assert payload["title"] == "Curated display title"
     assert payload["original_title"] == original_title
+
+
+def test_can_save_and_clear_bibtex_override_and_scholar_url(client):
+    paper_id = _create_confirmed_paper(client)
+    manual_bib = "@article{manual2026,\n  title={Manual Citation}\n}"
+    scholar_url = "https://scholar.google.com/scholar?q=paper+with+extras"
+
+    update_resp = client.post(
+        f"/api/v1/papers/{paper_id}",
+        json={
+            "bibtex_override": manual_bib,
+            "scholar_url": scholar_url,
+        },
+    )
+    assert update_resp.status_code == 200
+    payload = update_resp.json()
+    assert payload["bibtex_override"] == manual_bib
+    assert payload["scholar_url"] == scholar_url
+
+    citation_resp = client.get(f"/api/v1/papers/{paper_id}/citation", params={"style": "bibtex"})
+    assert citation_resp.status_code == 200
+    assert citation_resp.json()["citation"] == manual_bib
+
+    clear_resp = client.post(
+        f"/api/v1/papers/{paper_id}",
+        json={"bibtex_override": None},
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["bibtex_override"] is None
+
+    citation_after_clear = client.get(f"/api/v1/papers/{paper_id}/citation", params={"style": "bibtex"})
+    assert citation_after_clear.status_code == 400
+    assert "manual bibtex not set" in citation_after_clear.json()["detail"]
+
+
+def test_reject_non_scholar_url(client):
+    paper_id = _create_confirmed_paper(client)
+
+    update_resp = client.post(
+        f"/api/v1/papers/{paper_id}",
+        json={"scholar_url": "https://example.com/paper"},
+    )
+    assert update_resp.status_code == 400
+    assert "scholar_url" in update_resp.json()["detail"]
+
+
+def test_citation_batch_prefers_bibtex_override(client):
+    paper_id = _create_confirmed_paper(client)
+    manual_bib = "@article{batchmanual,\n  title={Batch Manual}\n}"
+    set_override = client.post(
+        f"/api/v1/papers/{paper_id}",
+        json={"bibtex_override": manual_bib},
+    )
+    assert set_override.status_code == 200
+
+    batch_resp = client.post(
+        "/api/v1/citation/batch",
+        json={"paper_ids": [paper_id], "style": "bibtex"},
+    )
+    assert batch_resp.status_code == 200
+    items = batch_resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["citation"] == manual_bib
+
+
+def test_export_bib_endpoint_returns_attachment_content(client):
+    paper_a = _create_confirmed_paper(client)
+    paper_b = _create_confirmed_paper(client)
+    manual_bib = "@article{exportmanual,\n  title={Export Manual}\n}"
+    manual_bib_b = "@article{exportmanualb,\n  title={Export Manual B}\n}"
+    set_override = client.post(
+        f"/api/v1/papers/{paper_a}",
+        json={"bibtex_override": manual_bib},
+    )
+    assert set_override.status_code == 200
+    set_override_b = client.post(
+        f"/api/v1/papers/{paper_b}",
+        json={"bibtex_override": manual_bib_b},
+    )
+    assert set_override_b.status_code == 200
+
+    export_resp = client.get(
+        "/api/v1/citation/export/bib",
+        params={"paper_ids": f"{paper_a},{paper_b}"},
+    )
+    assert export_resp.status_code == 200
+    assert "attachment; filename=" in export_resp.headers.get("content-disposition", "")
+    text = export_resp.text
+    assert manual_bib in text
+    assert manual_bib_b in text
+
+
+def test_export_bib_endpoint_rejects_missing_manual_bibtex(client):
+    paper_a = _create_confirmed_paper(client)
+    paper_b = _create_confirmed_paper(client)
+    manual_bib = "@article{exportmanual,\n  title={Export Manual}\n}"
+    set_override = client.post(
+        f"/api/v1/papers/{paper_a}",
+        json={"bibtex_override": manual_bib},
+    )
+    assert set_override.status_code == 200
+
+    export_resp = client.get(
+        "/api/v1/citation/export/bib",
+        params={"paper_ids": f"{paper_a},{paper_b}"},
+    )
+    assert export_resp.status_code == 400
+    assert "manual bibtex not set" in export_resp.json()["detail"]

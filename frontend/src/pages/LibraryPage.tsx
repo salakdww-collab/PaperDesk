@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import {
   addReview,
   attachmentUrl,
+  bibtexExportUrl,
   confirmPaper,
   deletePaper,
   deleteReview,
@@ -11,6 +12,7 @@ import {
   fetchPapers,
   fetchReviews,
   fetchTags,
+  openExternalUrl,
   openAttachment,
   searchPapers,
   updatePaper,
@@ -134,6 +136,8 @@ export function LibraryPage() {
   const [isPdfDragActive, setIsPdfDragActive] = useState(false)
   const [dragDepth, setDragDepth] = useState(0)
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null)
+  const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([])
+  const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null)
   const libraryFilterPrimaryRef = useRef<HTMLDivElement | null>(null)
   const librarySortLabelRef = useRef<HTMLLabelElement | null>(null)
 
@@ -267,6 +271,16 @@ export function LibraryPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['papers'] })
       queryClient.invalidateQueries({ queryKey: ['paper', selectedPaperId] })
+    },
+  })
+
+  const exportBibtexMutation = useMutation({
+    mutationFn: (paperIds: string[]) => openExternalUrl(bibtexExportUrl(paperIds)),
+    onSuccess: () => {
+      setExportErrorMessage(null)
+    },
+    onError: () => {
+      setExportErrorMessage('Failed to export BibTeX. Please check selected papers and try again.')
     },
   })
 
@@ -433,6 +447,46 @@ export function LibraryPage() {
     })
     return rows
   }, [filteredItems, librarySort])
+  const filteredIdSet = useMemo(() => new Set(sortedFilteredItems.map((paper) => paper.id)), [sortedFilteredItems])
+  const selectedCount = selectedPaperIds.length
+  const allFilteredSelected = sortedFilteredItems.length > 0
+    && sortedFilteredItems.every((paper) => selectedPaperIds.includes(paper.id))
+  const selectedIdsInSortOrder = useMemo(
+    () => sortedFilteredItems.map((paper) => paper.id).filter((paperId) => selectedPaperIds.includes(paperId)),
+    [selectedPaperIds, sortedFilteredItems],
+  )
+  const selectedPapersInSortOrder = useMemo(
+    () => sortedFilteredItems.filter((paper) => selectedPaperIds.includes(paper.id)),
+    [selectedPaperIds, sortedFilteredItems],
+  )
+  const selectedMissingManualBib = useMemo(
+    () => selectedPapersInSortOrder.filter((paper) => !paper.bibtex_override?.trim()),
+    [selectedPapersInSortOrder],
+  )
+
+  const togglePaperSelection = (paperId: string, checked: boolean) => {
+    setSelectedPaperIds((current) => {
+      if (checked) {
+        return current.includes(paperId) ? current : [...current, paperId]
+      }
+      return current.filter((item) => item !== paperId)
+    })
+    setExportErrorMessage(null)
+  }
+
+  const setAllFilteredSelection = (checked: boolean) => {
+    setSelectedPaperIds((current) => {
+      if (!checked) {
+        return current.filter((paperId) => !filteredIdSet.has(paperId))
+      }
+      const merged = new Set(current)
+      for (const paper of sortedFilteredItems) {
+        merged.add(paper.id)
+      }
+      return Array.from(merged)
+    })
+    setExportErrorMessage(null)
+  }
 
   useEffect(() => {
     if (activeLibraryTag === ALL_LIBRARY_TAG) return
@@ -446,6 +500,10 @@ export function LibraryPage() {
       setShowAllLibraryTags(false)
     }
   }, [extraLibraryTags.length, showAllLibraryTags])
+
+  useEffect(() => {
+    setSelectedPaperIds((current) => current.filter((paperId) => filteredIdSet.has(paperId)))
+  }, [filteredIdSet])
 
   useEffect(() => {
     const computeVisibleTags = () => {
@@ -512,6 +570,23 @@ export function LibraryPage() {
       window.removeEventListener('resize', computeVisibleTags)
     }
   }, [ALL_LIBRARY_TAG, activeLibraryTag, availableLibraryTags])
+
+  const exportSelectedBibtex = () => {
+    if (selectedIdsInSortOrder.length === 0 || exportBibtexMutation.isPending) {
+      return
+    }
+    if (selectedMissingManualBib.length > 0) {
+      const preview = selectedMissingManualBib
+        .slice(0, 3)
+        .map((paper) => paper.title || paper.id)
+        .join(', ')
+      const suffix = selectedMissingManualBib.length > 3 ? ', ...' : ''
+      setExportErrorMessage(`Manual BibTeX required before export: ${preview}${suffix}`)
+      return
+    }
+    setExportErrorMessage(null)
+    exportBibtexMutation.mutate(selectedIdsInSortOrder)
+  }
 
   return (
     <section className="page-grid">
@@ -656,10 +731,74 @@ export function LibraryPage() {
             ))}
           </div>
         ) : null}
+        <div className="library-tools-row">
+          <p className="meta-row library-selection-summary">
+            Selected: {selectedCount}
+          </p>
+          <div className="row wrap-row library-actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={sortedFilteredItems.length === 0}
+              onClick={() => setAllFilteredSelection(true)}
+            >
+              Select All (Current Filter)
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={selectedCount === 0}
+              onClick={() => {
+                setSelectedPaperIds([])
+                setExportErrorMessage(null)
+              }}
+            >
+              Clear Selection
+            </button>
+            <button
+              type="button"
+              disabled={selectedCount === 0 || exportBibtexMutation.isPending || selectedMissingManualBib.length > 0}
+              onClick={exportSelectedBibtex}
+            >
+              {exportBibtexMutation.isPending ? 'Exporting…' : `Export .bib (${selectedCount})`}
+            </button>
+          </div>
+        </div>
+        {selectedMissingManualBib.length > 0 ? (
+          <div className="missing-bib-panel" aria-live="polite">
+            <p className="meta-row">
+              {selectedMissingManualBib.length} selected paper{selectedMissingManualBib.length === 1 ? '' : 's'} missing manual BibTeX:
+            </p>
+            <div className="missing-bib-list">
+              {selectedMissingManualBib.map((paper) => (
+                <button
+                  key={`missing-bib-${paper.id}`}
+                  type="button"
+                  className="missing-bib-item"
+                  onClick={() => updateParams({ paper: paper.id })}
+                >
+                  {paper.title || paper.id}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {exportErrorMessage ? <p aria-live="polite">{exportErrorMessage}</p> : null}
         <table className="paper-table">
           <caption className="sr-only">Imported papers</caption>
           <thead>
             <tr>
+              <th scope="col" className="select-col">
+                <label htmlFor="select-all-papers" className="sr-only">Select all papers in current filter</label>
+                <input
+                  id="select-all-papers"
+                  name="select_all_papers"
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  aria-label="Select all papers in current filter"
+                  onChange={(event) => setAllFilteredSelection(event.target.checked)}
+                />
+              </th>
               <th scope="col">Title</th>
               <th scope="col">Updated</th>
             </tr>
@@ -667,7 +806,7 @@ export function LibraryPage() {
           <tbody>
             {sortedFilteredItems.length === 0 ? (
               <tr>
-                <td colSpan={2}>
+                <td colSpan={3}>
                   <p className="meta-row">
                     {items.length === 0
                       ? 'No papers yet. Import your first PDF above.'
@@ -677,7 +816,22 @@ export function LibraryPage() {
               </tr>
             ) : null}
             {sortedFilteredItems.map((paper) => (
-              <tr key={paper.id} className={paper.id === selectedPaperId ? 'is-selected' : undefined}>
+              <tr
+                key={paper.id}
+                className={`${paper.id === selectedPaperId ? 'is-selected ' : ''}${selectedPaperIds.includes(paper.id) ? 'is-checked' : ''}`.trim() || undefined}
+              >
+                <td className="select-col">
+                  <label htmlFor={`select-paper-${paper.id}`} className="sr-only">
+                    Select {paper.title || 'Untitled'}
+                  </label>
+                  <input
+                    id={`select-paper-${paper.id}`}
+                    name={`select_paper_${paper.id}`}
+                    type="checkbox"
+                    checked={selectedPaperIds.includes(paper.id)}
+                    onChange={(event) => togglePaperSelection(paper.id, event.target.checked)}
+                  />
+                </td>
                 <td className="title-cell">
                   <div className="library-title-block">
                     <button className="title-button" onClick={() => updateParams({ paper: paper.id })}>

@@ -57,6 +57,18 @@ def init_db(base_metadata) -> None:
                     "ALTER TABLE papers ADD COLUMN original_title VARCHAR(1000);"
                 )
             )
+        if not _column_exists(conn, "papers", "bibtex_override"):
+            conn.execute(
+                text(
+                    "ALTER TABLE papers ADD COLUMN bibtex_override TEXT;"
+                )
+            )
+        if not _column_exists(conn, "papers", "scholar_url"):
+            conn.execute(
+                text(
+                    "ALTER TABLE papers ADD COLUMN scholar_url VARCHAR(2000);"
+                )
+            )
         conn.execute(
             text(
                 "UPDATE papers SET original_title = title WHERE (original_title IS NULL OR TRIM(original_title) = '') AND title IS NOT NULL;"

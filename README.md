@@ -48,6 +48,34 @@ Notes:
 - Build requires `node/npm` and `python3`.
 - If Gatekeeper blocks first launch, right-click `PaperLocal.app` and choose `Open`.
 
+### macOS signing + notarization (recommended for distribution)
+
+Prerequisites:
+
+- Apple Developer membership.
+- A `Developer ID Application` certificate installed in your macOS login keychain.
+- Xcode command line tools (`xcrun`, `codesign`, `notarytool`).
+
+Create a notarytool keychain profile once:
+
+```bash
+xcrun notarytool store-credentials "PAPERDESK_NOTARY" \
+  --apple-id "<your-apple-id-email>" \
+  --team-id "<your-team-id>" \
+  --password "<app-specific-password>"
+```
+
+Then run:
+
+```bash
+APPLE_NOTARY_PROFILE=PAPERDESK_NOTARY \
+./scripts/notarize_mac_app.sh --version v1.0.1
+```
+
+This signs `dist/PaperLocal.app`, submits notarization, staples the ticket, and outputs a release zip in `dist/`.
+
+For daily usage, move `PaperLocal.app` into `/Applications` instead of launching from Downloads.
+
 Run desktop mode directly from source (without packaging):
 
 ```bash

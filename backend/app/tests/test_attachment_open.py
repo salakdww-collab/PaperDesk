@@ -38,9 +38,13 @@ def test_open_attachment_endpoint(client, monkeypatch):
 
     called = {"count": 0}
 
-    def fake_run(args, check=False):
+    class _RunResult:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(args, check=False, **kwargs):
         called["count"] += 1
-        return None
+        return _RunResult()
 
     monkeypatch.setattr("app.api.routes.subprocess.run", fake_run)
 
@@ -57,3 +61,24 @@ def test_open_attachment_endpoint(client, monkeypatch):
     file_resp = client.get(f"/api/v1/attachments/{attachment_id}/file")
     assert file_resp.status_code == 200
     assert "inline" in file_resp.headers.get("content-disposition", "")
+
+
+def test_open_external_url_endpoint(client, monkeypatch):
+    called = {"count": 0, "url": ""}
+
+    class _RunResult:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(args, check=False, **kwargs):
+        called["count"] += 1
+        called["url"] = args[1]
+        return _RunResult()
+
+    monkeypatch.setattr("app.api.routes.subprocess.run", fake_run)
+
+    resp = client.post("/api/v1/open/external", params={"url": "https://scholar.google.com/scholar?q=kernel+methods"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert called["count"] == 1
+    assert called["url"].startswith("https://scholar.google.")

@@ -88,6 +88,8 @@ export async function updatePaper(id: string, payload: Partial<{
   arxiv_id: string
   abstract: string
   summary: string
+  bibtex_override: string | null
+  scholar_url: string | null
   summary_label: string
   language: string
   tags: string[]
@@ -170,6 +172,19 @@ export async function fetchCitation(paperId: string, style: 'bibtex' | 'apa') {
   return data as { paper_id: string; style: 'bibtex' | 'apa'; citation: string }
 }
 
+export async function fetchCitationBatch(paperIds: string[], style: 'bibtex' | 'apa') {
+  const { data } = await api.post('/api/v1/citation/batch', { paper_ids: paperIds, style })
+  return data as {
+    style: 'bibtex' | 'apa'
+    items: Array<{ paper_id: string; style: 'bibtex' | 'apa'; citation: string }>
+  }
+}
+
+export function bibtexExportUrl(paperIds: string[]) {
+  const params = new URLSearchParams({ paper_ids: paperIds.join(',') })
+  return `${baseURL}/api/v1/citation/export/bib?${params.toString()}`
+}
+
 export async function runBackup(kind: 'daily' | 'weekly') {
   const { data } = await api.post('/api/v1/backup/run', { kind })
   return data as BackupItem
@@ -197,6 +212,10 @@ export async function openAttachment(attachmentId: string, target: 'preview' | '
   await api.post(`/api/v1/attachments/${attachmentId}/open`, null, {
     params: { target },
   })
+}
+
+export async function openExternalUrl(url: string) {
+  await api.post('/api/v1/open/external', null, { params: { url } })
 }
 
 export async function deleteAttachment(attachmentId: string) {

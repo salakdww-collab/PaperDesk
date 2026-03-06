@@ -224,6 +224,55 @@ a {
   min-width: 170px;
 }
 
+.library-tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.library-selection-summary {
+  margin: 0;
+}
+
+.library-actions {
+  justify-content: flex-end;
+}
+
+.missing-bib-panel {
+  margin-bottom: 10px;
+}
+
+.missing-bib-panel .meta-row {
+  margin-bottom: 6px;
+}
+
+.missing-bib-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.missing-bib-item {
+  border: 1px solid color-mix(in srgb, var(--line-strong) 70%, white);
+  background: color-mix(in srgb, #f6e6d8 90%, white);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.missing-bib-item:hover {
+  background: color-mix(in srgb, #f6e6d8 82%, black);
+}
+
 .library-extra-tags {
   display: flex;
   flex-wrap: wrap;
@@ -538,6 +587,16 @@ button.danger:hover {
   vertical-align: top;
 }
 
+.paper-table .select-col {
+  width: 42px;
+  text-align: center;
+}
+
+.paper-table .select-col input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+
 .paper-table th {
   color: var(--muted);
   font-size: 0.83rem;
@@ -555,6 +614,10 @@ button.danger:hover {
 
 .paper-table tr.is-selected {
   background: color-mix(in srgb, var(--accent-soft) 55%, white);
+}
+
+.paper-table tr.is-checked {
+  background: color-mix(in srgb, var(--accent-soft) 36%, white);
 }
 
 .paper-table tbody tr:hover {
@@ -657,6 +720,12 @@ button.danger:hover {
   padding: 10px;
   margin-bottom: 10px;
   transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.citation-section textarea[name='detail_bibtex_override_input'] {
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 .section-card:focus-within {
@@ -996,6 +1065,11 @@ textarea:focus-visible {
   .library-sort-label {
     margin-left: 0;
     max-width: 220px;
+  }
+
+  .library-actions {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .row > * {

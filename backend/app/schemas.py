@@ -34,6 +34,8 @@ class ConfirmPaperRequest(BaseModel):
     arxiv_id: str | None = None
     abstract: str | None = None
     summary: str | None = None
+    bibtex_override: str | None = Field(default=None, max_length=20000)
+    scholar_url: str | None = Field(default=None, max_length=2000)
     summary_label: str | None = Field(default=None, max_length=64)
     language: str | None = None
     tags: list[str] = Field(default_factory=list)
@@ -48,6 +50,8 @@ class UpdatePaperRequest(BaseModel):
     arxiv_id: str | None = None
     abstract: str | None = None
     summary: str | None = None
+    bibtex_override: str | None = Field(default=None, max_length=20000)
+    scholar_url: str | None = Field(default=None, max_length=2000)
     summary_label: str | None = Field(default=None, max_length=64)
     language: str | None = None
     tags: list[str] | None = None
@@ -113,6 +117,8 @@ class PaperOut(BaseModel):
     arxiv_id: str | None = None
     abstract: str | None = None
     summary: str | None = None
+    bibtex_override: str | None = None
+    scholar_url: str | None = None
     summary_label: str = "Abstract"
     language: str | None = None
     needs_manual_metadata: bool

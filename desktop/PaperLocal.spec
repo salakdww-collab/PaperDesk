@@ -45,10 +45,8 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='PaperLocal',
     debug=False,
     bootloader_ignore_signals=False,
@@ -63,8 +61,19 @@ exe = EXE(
     entitlements_file=None,
 )
 
-app = BUNDLE(
+coll = COLLECT(
     exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='PaperLocal',
+)
+
+app = BUNDLE(
+    coll,
     name='PaperLocal.app',
     icon=None,
     bundle_identifier='local.paper.manager',

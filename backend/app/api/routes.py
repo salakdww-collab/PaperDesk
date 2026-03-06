@@ -8,9 +8,10 @@ import webbrowser
 import uuid
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from rapidfuzz import fuzz
 from sqlalchemy import and_, delete as sql_delete, func, or_, select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -78,6 +79,7 @@ from app.services.relation_service import (
 router = APIRouter(prefix="/api/v1", tags=["api"])
 WORD_RE = re.compile(r"[A-Za-z0-9]+")
 DEFAULT_SUMMARY_LABEL = "Abstract"
+MAX_BIBTEX_OVERRIDE_LEN = 20000
 
 
 def _paper_link_to_out(link: PaperLink) -> PaperLinkOut:
@@ -205,6 +207,37 @@ def _normalize_summary_text(value: str | None) -> str | None:
     return normalized or None
 
 
+def _normalize_bibtex_override(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return normalized[:MAX_BIBTEX_OVERRIDE_LEN]
+
+
+def _is_scholar_host(hostname: str | None) -> bool:
+    if not hostname:
+        return False
+    normalized = hostname.lower()
+    return normalized == "scholar.google.com" or normalized.startswith("scholar.google.")
+
+
+def _normalize_scholar_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="scholar_url must be a valid https URL")
+    if not _is_scholar_host(parsed.hostname):
+        raise HTTPException(status_code=400, detail="scholar_url must use scholar.google.*")
+    return normalized
+
+
 
 def _paper_to_out(paper: Paper) -> PaperOut:
     author_rows = sorted(paper.authors, key=lambda x: x.author_order)
@@ -221,6 +254,8 @@ def _paper_to_out(paper: Paper) -> PaperOut:
         arxiv_id=paper.arxiv_id,
         abstract=paper.abstract,
         summary=paper.summary,
+        bibtex_override=paper.bibtex_override,
+        scholar_url=paper.scholar_url,
         summary_label=_normalize_summary_label(paper.summary_label),
         language=paper.language,
         needs_manual_metadata=paper.needs_manual_metadata,
@@ -488,6 +523,8 @@ def confirm_paper(payload: ConfirmPaperRequest, db: Session = Depends(get_db)) -
         if payload.summary is not None
         else (paper.summary or paper.abstract)
     )
+    paper.bibtex_override = _normalize_bibtex_override(payload.bibtex_override)
+    paper.scholar_url = _normalize_scholar_url(payload.scholar_url)
     paper.summary_label = _normalize_summary_label(payload.summary_label)
     paper.language = payload.language
     paper.needs_manual_metadata = False
@@ -603,6 +640,10 @@ def update_paper(paper_id: str, payload: UpdatePaperRequest, db: Session = Depen
         paper.summary = _normalize_summary_text(payload.summary)
     if payload.summary_label is not None:
         paper.summary_label = _normalize_summary_label(payload.summary_label)
+    if "bibtex_override" in payload.model_fields_set:
+        paper.bibtex_override = _normalize_bibtex_override(payload.bibtex_override)
+    if "scholar_url" in payload.model_fields_set:
+        paper.scholar_url = _normalize_scholar_url(payload.scholar_url)
 
     if payload.authors is not None:
         _apply_authors(db, paper, payload.authors)
@@ -1102,7 +1143,10 @@ def get_citation(paper_id: str, style: str = Query(pattern="^(bibtex|apa)$"), db
     if not paper:
         raise HTTPException(status_code=404, detail="paper not found")
 
-    citation = render_citation(paper, style)
+    try:
+        citation = render_citation(paper, style)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return CitationResponse(paper_id=paper.id, style=style, citation=citation)
 
 
@@ -1115,6 +1159,20 @@ def citation_batch(payload: CitationBatchRequest, db: Session = Depends(get_db))
     ).scalars().all()
 
     by_id = {paper.id: paper for paper in papers}
+    if payload.style == "bibtex":
+        missing_manual = []
+        for paper_id in payload.paper_ids:
+            paper = by_id.get(paper_id)
+            if not paper:
+                continue
+            if not paper.bibtex_override or not paper.bibtex_override.strip():
+                missing_manual.append(paper.title or paper.id)
+        if missing_manual:
+            preview = ", ".join(missing_manual[:5])
+            if len(missing_manual) > 5:
+                preview = f"{preview}, ..."
+            raise HTTPException(status_code=400, detail=f"manual bibtex not set: {preview}")
+
     items = []
     for paper_id in payload.paper_ids:
         paper = by_id.get(paper_id)
@@ -1123,6 +1181,53 @@ def citation_batch(payload: CitationBatchRequest, db: Session = Depends(get_db))
         items.append(CitationResponse(paper_id=paper.id, style=payload.style, citation=render_citation(paper, payload.style)))
 
     return CitationBatchResponse(style=payload.style, items=items)
+
+
+@router.get("/citation/export/bib")
+def export_citation_bib(
+    paper_ids: str = Query(min_length=1, description="Comma-separated paper ids"),
+    db: Session = Depends(get_db),
+) -> Response:
+    requested_ids = [item.strip() for item in paper_ids.split(",") if item.strip()]
+    if not requested_ids:
+        raise HTTPException(status_code=400, detail="paper_ids is required")
+
+    papers = db.execute(
+        select(Paper)
+        .options(selectinload(Paper.authors).selectinload(PaperAuthor.author))
+        .where(Paper.id.in_(requested_ids))
+    ).scalars().all()
+
+    by_id = {paper.id: paper for paper in papers}
+    missing_manual: list[str] = []
+    entries: list[str] = []
+    for paper_id in requested_ids:
+        paper = by_id.get(paper_id)
+        if not paper:
+            continue
+        if not paper.bibtex_override or not paper.bibtex_override.strip():
+            missing_manual.append(paper.title or paper.id)
+            continue
+        entries.append(paper.bibtex_override.strip())
+
+    if missing_manual:
+        preview = ", ".join(missing_manual[:5])
+        if len(missing_manual) > 5:
+            preview = f"{preview}, ..."
+        raise HTTPException(status_code=400, detail=f"manual bibtex not set: {preview}")
+
+    if not entries:
+        raise HTTPException(status_code=400, detail="no bibtex content for requested papers")
+
+    now = datetime.now()
+    filename = f"paperdesk-{now:%Y%m%d-%H%M}.bib"
+    content = "\n\n".join(entries) + "\n"
+
+    return Response(
+        content=content,
+        media_type="application/x-bibtex; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/backup/run", response_model=BackupItem)
@@ -1167,6 +1272,33 @@ def download_attachment(attachment_id: str, db: Session = Depends(get_db)) -> Fi
     )
 
 
+def _open_external_url(url: str) -> None:
+    run_result = None
+    try:
+        run_result = subprocess.run(["open", url], check=False, capture_output=True, text=True)
+        if run_result.returncode == 0:
+            return
+    except Exception:
+        run_result = None
+
+    try:
+        if webbrowser.open(url):
+            return
+    except Exception:
+        pass
+
+    detail = "failed to open external URL"
+    if run_result is not None and run_result.stderr:
+        detail = f"{detail}: {run_result.stderr.strip()[:200]}"
+    raise HTTPException(status_code=500, detail=detail)
+
+
+@router.post("/open/external")
+def open_external_url(url: str = Query(min_length=1, max_length=8000, pattern=r"^https?://")) -> dict:
+    _open_external_url(url)
+    return {"ok": True}
+
+
 @router.post("/attachments/{attachment_id}/open")
 def open_attachment(
     attachment_id: str,
@@ -1182,17 +1314,10 @@ def open_attachment(
     if not path.exists():
         raise HTTPException(status_code=404, detail="file not found")
 
-    try:
-        if target == "preview":
-            subprocess.run(["open", str(path)], check=False)
-        else:
-            url = str(request.url_for("download_attachment", attachment_id=attachment_id))
-            subprocess.run(["open", url], check=False)
-    except Exception:
-        if target == "preview":
-            webbrowser.open(path.as_uri())
-        else:
-            webbrowser.open(str(request.url_for("download_attachment", attachment_id=attachment_id)))
+    if target == "preview":
+        _open_external_url(path.as_uri())
+    else:
+        _open_external_url(str(request.url_for("download_attachment", attachment_id=attachment_id)))
 
     return {"ok": True}
 

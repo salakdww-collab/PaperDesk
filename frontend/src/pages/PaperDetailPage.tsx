@@ -17,6 +17,7 @@ import {
   fetchReviews,
   fetchTags,
   openAttachment,
+  openExternalUrl,
   updatePaper,
   updateReview,
   uploadPaperAttachment,
@@ -36,6 +37,8 @@ export function PaperDetailPage() {
   const [summaryInput, setSummaryInput] = useState('')
   const [linkLabelInput, setLinkLabelInput] = useState('')
   const [linkUrlInput, setLinkUrlInput] = useState('')
+  const [scholarUrlInput, setScholarUrlInput] = useState('')
+  const [bibtexOverrideInput, setBibtexOverrideInput] = useState('')
   const [isTagsOpen, setIsTagsOpen] = useState(false)
   const [isSupplementalOpen, setIsSupplementalOpen] = useState(false)
   const [isLinksOpen, setIsLinksOpen] = useState(false)
@@ -139,6 +142,19 @@ export function PaperDetailPage() {
     },
   })
 
+  const saveCitationConfigMutation = useMutation({
+    mutationFn: (payload: { paperId: string; scholar_url: string | null; bibtex_override: string | null }) =>
+      updatePaper(payload.paperId, {
+        scholar_url: payload.scholar_url,
+        bibtex_override: payload.bibtex_override,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['papers'] })
+      queryClient.invalidateQueries({ queryKey: ['paper', paperId] })
+      queryClient.invalidateQueries({ queryKey: ['paper-citation', paperId] })
+    },
+  })
+
   const uploadAttachmentMutation = useMutation({
     mutationFn: (payload: { paperId: string; file: File }) =>
       uploadPaperAttachment(payload.paperId, payload.file),
@@ -167,6 +183,10 @@ export function PaperDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['papers'] })
       queryClient.invalidateQueries({ queryKey: ['paper', paperId] })
     },
+  })
+
+  const openScholarMutation = useMutation({
+    mutationFn: (url: string) => openExternalUrl(url),
   })
 
   const deleteLinkMutation = useMutation({
@@ -215,12 +235,24 @@ export function PaperDetailPage() {
       setTagsInput('')
       setTitleInput('')
       setSummaryInput('')
+      setScholarUrlInput('')
+      setBibtexOverrideInput('')
       return
     }
     setTagsInput(paperQuery.data.tags.map((item) => item.name).join(', '))
     setTitleInput(paperQuery.data.title || '')
     setSummaryInput(paperQuery.data.summary || paperQuery.data.abstract || '')
-  }, [paperQuery.data?.id, paperQuery.data?.tags, paperQuery.data?.title, paperQuery.data?.summary, paperQuery.data?.abstract])
+    setScholarUrlInput(paperQuery.data.scholar_url || '')
+    setBibtexOverrideInput(paperQuery.data.bibtex_override || '')
+  }, [
+    paperQuery.data?.id,
+    paperQuery.data?.tags,
+    paperQuery.data?.title,
+    paperQuery.data?.summary,
+    paperQuery.data?.abstract,
+    paperQuery.data?.scholar_url,
+    paperQuery.data?.bibtex_override,
+  ])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -286,6 +318,13 @@ export function PaperDetailPage() {
   }
   const relationGroups = relationsQuery.data || { cites: [], cited_by: [], related: [] }
   const relationCandidates = relationCandidatesQuery.data || []
+  const normalizedScholarUrl = scholarUrlInput.trim()
+  const normalizedBibtexOverride = bibtexOverrideInput.trim()
+  const citationSettingsChanged = normalizedScholarUrl !== (paper.scholar_url || '')
+    || normalizedBibtexOverride !== (paper.bibtex_override || '')
+  const scholarSearchHref = normalizedDraftTitle
+    ? `https://scholar.google.com/scholar?q=${encodeURIComponent(normalizedDraftTitle)}`
+    : ''
 
   return (
     <section className="detail-grid">
@@ -439,6 +478,88 @@ export function PaperDetailPage() {
             </button>
           </div>
         )}
+      </div>
+
+      <div className="panel full-span">
+        <h2 className="section-title">Citation</h2>
+        <div className="section-card citation-section">
+          <div className="row wrap-row">
+            <button
+              className="secondary"
+              disabled={!normalizedDraftTitle || openScholarMutation.isPending}
+              onClick={() => {
+                if (!scholarSearchHref) return
+                openScholarMutation.mutate(scholarSearchHref)
+              }}
+            >
+              Open Scholar Search
+            </button>
+            {paper.scholar_url ? (
+              <button
+                className="secondary"
+                disabled={openScholarMutation.isPending}
+                onClick={() => openScholarMutation.mutate(paper.scholar_url!)}
+              >
+                Open Saved Scholar URL
+              </button>
+            ) : null}
+          </div>
+          {openScholarMutation.isError ? <p aria-live="polite">Failed to open Scholar URL.</p> : null}
+
+          <label htmlFor="detail-scholar-url-input">Scholar URL (optional)</label>
+          <input
+            id="detail-scholar-url-input"
+            name="detail_scholar_url_input"
+            autoComplete="off"
+            type="url"
+            inputMode="url"
+            placeholder="https://scholar.google.com/scholar?q=..."
+            value={scholarUrlInput}
+            onChange={(e) => setScholarUrlInput(e.target.value)}
+          />
+
+          <label htmlFor="detail-bibtex-override-input">Manual BibTeX (required for export)</label>
+          <textarea
+            id="detail-bibtex-override-input"
+            name="detail_bibtex_override_input"
+            autoComplete="off"
+            placeholder="@article{...}"
+            value={bibtexOverrideInput}
+            onChange={(e) => setBibtexOverrideInput(e.target.value)}
+            rows={8}
+          />
+
+          <div className="row wrap-row">
+            <button
+              className="secondary"
+              disabled={!citationSettingsChanged || saveCitationConfigMutation.isPending}
+              onClick={() =>
+                saveCitationConfigMutation.mutate({
+                  paperId: paper.id,
+                  scholar_url: normalizedScholarUrl || null,
+                  bibtex_override: normalizedBibtexOverride || null,
+                })
+              }
+            >
+              Save Citation Settings
+            </button>
+            <button
+              className="secondary"
+              disabled={saveCitationConfigMutation.isPending || !paper.bibtex_override}
+              onClick={() =>
+                saveCitationConfigMutation.mutate({
+                  paperId: paper.id,
+                  scholar_url: normalizedScholarUrl || null,
+                  bibtex_override: null,
+                })
+              }
+            >
+              Clear BibTeX Override
+            </button>
+          </div>
+          {saveCitationConfigMutation.isPending ? <p aria-live="polite">Saving citation settings…</p> : null}
+          {saveCitationConfigMutation.isError ? <p aria-live="polite">Failed to save citation settings.</p> : null}
+        </div>
       </div>
 
       <div className="panel full-span">
